@@ -1,50 +1,49 @@
-"""CLI launcher for the backend API with optional demo seeding."""
+"""CLI launcher for the enhanced backend API with OpenAI Agents SDK."""
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
+import os
+import sys
+from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 
-from .api import Application
+# Load environment variables
+load_dotenv()
 
 
-async def seed_demo_data(app: Application) -> dict[str, Any]:
-    """Populate the database with a minimal scenario for local testing."""
-
-    app.registry.db.reset()
-    template = app.create_template(name="Planner", description="Helps plan tasks")
-    tool = app.create_tool(name="Echo", description="Echo user input")
-    function = app.create_function(name="Summarize", description="Summaries")
-    agent_id = app.deploy_agent(
-        template_id=template.id,
-        name="PlannerInstance",
-        owner_id="demo",
-        assigned_tools=[tool.id],
-        assigned_functions=[function.id],
-    )
-    route_result = app.route_request(user_input="plan my day", owner_id="demo")
-    improvement = await app.self_improve(owner_id="demo")
-    return {
-        "template": template,
-        "tool": tool,
-        "function": function,
-        "agent_id": agent_id,
-        "route_result": route_result,
-        "improvement": improvement,
-    }
+def check_requirements():
+    """Check if required environment variables are set."""
+    if not os.getenv("OPENAI_API_KEY"):
+        print("ERROR: OPENAI_API_KEY not set in environment variables")
+        print("Please copy .env.example to .env and add your OpenAI API key")
+        sys.exit(1)
 
 
 def main() -> None:
-    application = Application()
-
-    results = asyncio.run(seed_demo_data(application))
-    print("Seeded data:")
-    for key, value in results.items():
-        print(f"- {key}: {value}")
-
-    uvicorn.run(application.api, host="0.0.0.0", port=8000)
+    """Run the enhanced API server."""
+    check_requirements()
+    
+    # Import here to ensure env vars are loaded
+    from .api_v2 import app_v2
+    
+    print("🚀 Starting AI Agent Platform v2.0")
+    print("📍 API Documentation: http://localhost:8000/docs")
+    print("🔧 OpenAI Agents SDK: Enabled")
+    print("🔐 Authentication: Enabled")
+    print("🌐 WebSocket Support: Enabled")
+    
+    # Ensure data directory exists
+    data_dir = Path(__file__).parent.parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    
+    uvicorn.run(
+        app_v2,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", 8000)),
+        reload=True
+    )
 
 
 if __name__ == "__main__":
