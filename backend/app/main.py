@@ -26,11 +26,13 @@ def main() -> None:
     check_requirements()
     
     # Import here to ensure env vars are loaded
-    from .api_v2 import app_v2
+    from .api_agents import app
     
     print("🚀 Starting AI Agent Platform v2.0")
     print("📍 API Documentation: http://localhost:8000/docs")
-    print("🔧 OpenAI Agents SDK: Enabled")
+    print("🔧 OpenAI Agents SDK: Official SDK Enabled")
+    print("🤖 Pre-built Agents: Meta Agent, Support, Code Assistant, Content Creator")
+    print("🔄 Agent Handoffs: Enabled")
     print("🔐 Authentication: Enabled")
     print("🌐 WebSocket Support: Enabled")
     
@@ -39,7 +41,7 @@ def main() -> None:
     data_dir.mkdir(exist_ok=True)
     
     uvicorn.run(
-        app_v2,
+        app,
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", 8000)),
         reload=True
