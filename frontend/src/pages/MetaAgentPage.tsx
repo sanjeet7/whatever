@@ -62,7 +62,7 @@ export function MetaAgentPage() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">
-          <Sparkles className="h-8 w-8 text-primary" />
+          <Sparkles className="h-8 w-8 text-primary glow rounded-full" />
           Meta Agent Designer
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -70,7 +70,7 @@ export function MetaAgentPage() {
         </p>
       </div>
 
-      <Card>
+      <Card className="neo-panel">
         <CardHeader>
           <CardTitle>Agent Requirements</CardTitle>
           <CardDescription>
@@ -96,7 +96,14 @@ export function MetaAgentPage() {
             className="w-full"
           >
             {designMutation.isPending ? (
-              <>Designing Agent...</>
+              <>
+                Designing Agent
+                <span className="ml-2 loading-dots inline-flex gap-1 align-middle">
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                </span>
+              </>
             ) : (
               <>
                 <Wand2 className="mr-2 h-4 w-4" />
@@ -108,7 +115,7 @@ export function MetaAgentPage() {
       </Card>
 
       {design && (
-        <Card>
+        <Card className="neo-panel">
           <CardHeader>
             <CardTitle>Agent Design</CardTitle>
             <CardDescription>

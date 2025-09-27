@@ -116,12 +116,12 @@ class AgentManager:
             "content_generation": generate_content,
             "data_access": database_query
         }
-        self._initialize_default_agents()
+        # Start with an empty pool; remove hardcoded demo agents
     
-    def _initialize_default_agents(self):
-        """Initialize default agents including the meta agent."""
-        
-        # Meta Agent for designing other agents
+    def _ensure_meta_agent(self) -> None:
+        """Create the meta agent lazily if it doesn't exist."""
+        if getattr(self, "meta_agent", None) is not None:
+            return
         self.meta_agent = Agent(
             name="Meta Agent Designer",
             instructions="""You are a Meta Agent Designer. Your role is to help users create specialized AI agents.
@@ -135,42 +135,13 @@ When a user describes what they want an agent to do:
 
 Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
             tools=[create_agent_config],
-            model="gpt-5"
+            model="gpt-5",
         )
         self.agents["meta_agent"] = self.meta_agent
-        
-        # Customer Support Agent
-        self.support_agent = Agent(
-            name="Customer Support",
-            instructions="""You are a helpful customer support agent. 
-            You can help with product questions, troubleshooting, and general inquiries.
-            Always be polite, empathetic, and solution-oriented.""",
-            tools=[web_search],
-            model="gpt-5"
-        )
-        self.agents["support_agent"] = self.support_agent
-        
-        # Code Assistant Agent
-        self.code_agent = Agent(
-            name="Code Assistant",
-            instructions="""You are an expert programming assistant.
-            You can help with code reviews, debugging, and suggesting improvements.
-            Support multiple programming languages and follow best practices.""",
-            tools=[analyze_code, web_search],
-            model="gpt-5"
-        )
-        self.agents["code_agent"] = self.code_agent
-        
-        # Content Creator Agent
-        self.content_agent = Agent(
-            name="Content Creator",
-            instructions="""You are a creative content generator.
-            You can help create articles, social media posts, and other content.
-            Focus on engaging, original, and well-structured content.""",
-            tools=[generate_content, web_search],
-            model="gpt-5"
-        )
-        self.agents["content_agent"] = self.content_agent
+
+    def _initialize_default_agents(self):
+        """Deprecated: defaults removed. Create via API or Meta Agent."""
+        return
     
     def create_agent(self, config: Dict[str, Any]) -> str:
         """Create a new agent from configuration."""
@@ -242,6 +213,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
     
     def design_agent_with_meta(self, requirements: str) -> Dict[str, Any]:
         """Use the meta agent to design a new agent (sync helper)."""
+        self._ensure_meta_agent()
         result = Runner.run_sync(
             starting_agent=self.meta_agent,
             input=f"Please design an AI agent with these requirements: {requirements}"
@@ -263,6 +235,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
 
     async def design_agent_with_meta_async(self, requirements: str) -> Dict[str, Any]:
         """Async variant to avoid blocking event loop."""
+        self._ensure_meta_agent()
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
@@ -326,34 +299,76 @@ class HandoffAgentSystem:
     """System demonstrating agent handoffs."""
     
     def __init__(self):
-        # Shopping assistant
-        self.shopping_agent = Agent(
-            name="Shopping Assistant",
-            instructions="You help users find and purchase products. You can search for products and provide recommendations.",
-            tools=[web_search]
+        # Finance specialist
+        @function_tool
+        def check_rewards(program: str, category: str) -> str:
+            """Look up credit card rewards for a category (mock)."""
+            mapping = {
+                ("amex_platinum", "hotel"): "5x points on prepaid hotel bookings",
+                ("amex_platinum", "airfare"): "5x points on flights booked with airlines",
+                ("chase_sapphire_preferred", "dining"): "3x points on dining",
+            }
+            return mapping.get((program.lower(), category.lower()), "1x base points")
+
+        self.finance_agent = Agent(
+            name="Finance Specialist",
+            instructions=(
+                "You analyze financial statements, optimize credit card rewards, and recommend the most rewarding payment method."
+            ),
+            tools=[check_rewards],
         )
-        
-        # Support agent with refund capability
+
+        # Travel specialist
+        @function_tool
+        def propose_itinerary(destination: str, nights: int, preference: str = "") -> str:
+            """Draft a simple travel itinerary (mock)."""
+            return (
+                f"Itinerary for {destination} ({nights} nights): Day 1 arrival and local cuisine, Day 2 city tour, "
+                f"Day 3 museum and parks, Day 4 optional excursion, Day 5 leisure. Preferences: {preference}."
+            )
+
+        self.travel_agent = Agent(
+            name="Travel Specialist",
+            instructions=(
+                "You plan travel itineraries based on schedules, preferences, and loyalty benefits. Coordinate with the Finance Specialist when rewards impact bookings."
+            ),
+            tools=[propose_itinerary, web_search],
+        )
+
+        # Customer support (kept for completeness)
         @function_tool
         def submit_refund_request(item_id: str, reason: str) -> str:
             """Submit a refund request for an item."""
             return f"Refund request submitted for item {item_id}. Reason: {reason}. Reference number: REF-{datetime.now().timestamp()}"
-        
+
         self.support_agent = Agent(
             name="Support and Returns",
             instructions="You handle customer support issues, especially returns and refunds. Be empathetic and solution-oriented.",
-            tools=[submit_refund_request]
+            tools=[submit_refund_request],
         )
-        
-        # Triage agent that routes to others
+
+        # Shopping assistant
+        self.shopping_agent = Agent(
+            name="Shopping Assistant",
+            instructions="You help users find and purchase products. You can search for products and provide recommendations.",
+            tools=[web_search],
+        )
+
+        # Triage/Orchestrator agent that routes and coordinates
         self.triage_agent = Agent(
-            name="Triage Agent",
-            instructions="""You are the first point of contact. Understand what the user needs and route them to the appropriate specialist:
-            - For product searches and shopping: handoff to Shopping Assistant
-            - For returns, refunds, and support issues: handoff to Support and Returns
-            
-            Always explain who you're connecting them with and why.""",
-            handoffs=[self.shopping_agent, self.support_agent]
+            name="Orchestrator",
+            instructions="""
+            You are the single entrypoint orchestrator. Determine which specialist(s) should handle the request.
+            Principles:
+            - Finance, rewards, payments -> Finance Specialist
+            - Travel planning, itineraries, bookings -> Travel Specialist
+            - If both finance and travel are relevant, coordinate both: first consult Finance for rewards, then Travel for itinerary using those insights.
+            - Shopping/product search -> Shopping Assistant
+            - Refunds/support -> Support and Returns
+
+            When coordinating multiple specialists, explicitly state the handoff sequence and merge the results in your final response.
+            """,
+            handoffs=[self.finance_agent, self.travel_agent, self.shopping_agent, self.support_agent],
         )
     
     def handle_request(self, user_input: str) -> str:

@@ -10,7 +10,7 @@ import toast from 'react-hot-toast'
 import ReactMarkdown from 'react-markdown'
 
 export function ChatPage() {
-  const { agentId = 'triage_agent' } = useParams()
+  const { agentId = 'orchestrator' } = useParams()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isConnected, setIsConnected] = useState(false)
@@ -23,22 +23,35 @@ export function ChatPage() {
     queryFn: agentsAPI.list,
   })
 
-  const currentAgent = agents.find(a => a.id === agentId) || {
-    id: 'triage_agent',
-    name: 'Triage Agent',
-    model: 'gpt-4-turbo-preview',
+  const currentAgent = (agents as Agent[]).find((a: Agent) => a.id === agentId) || {
+    id: 'orchestrator',
+    name: 'Orchestrator',
+    model: 'router',
     tools: [],
   }
 
   const createSessionMutation = useMutation({
     mutationFn: sessionsAPI.create,
     onSuccess: (data) => {
+      localStorage.setItem('session_id', data.session_id)
       connectWebSocket(data.session_id)
     },
   })
 
   useEffect(() => {
-    createSessionMutation.mutate()
+    const existing = localStorage.getItem('session_id')
+    if (existing) {
+      // preload history
+      sessionsAPI.get(existing).then((res) => {
+        setMessages(res.messages || [])
+        connectWebSocket(existing)
+      }).catch(() => {
+        // if failed (expired), create new
+        createSessionMutation.mutate()
+      })
+    } else {
+      createSessionMutation.mutate()
+    }
 
     return () => {
       if (wsRef.current) {
@@ -69,7 +82,7 @@ export function ChatPage() {
       
       if (data.type === 'response') {
         setIsTyping(false)
-        setMessages(prev => [...prev, {
+        setMessages((prev: Message[]) => [...prev, {
           role: 'assistant',
           content: data.message,
           timestamp: data.timestamp,
@@ -100,7 +113,7 @@ export function ChatPage() {
       timestamp: new Date().toISOString(),
     }
 
-    setMessages(prev => [...prev, message])
+    setMessages((prev: Message[]) => [...prev, message])
     setInput('')
     setIsTyping(true)
 
@@ -125,13 +138,13 @@ export function ChatPage() {
         <h3 className="font-semibold mb-4">Select Agent</h3>
         <div className="space-y-2">
           <a
-            href="/chat/triage_agent"
+            href="/chat/orchestrator"
             className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
-              agentId === 'triage_agent' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
+              agentId === 'orchestrator' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
             }`}
           >
             <Bot className="h-4 w-4" />
-            <span className="text-sm">Triage Agent</span>
+            <span className="text-sm">Orchestrator</span>
           </a>
           {agents.map((agent) => (
             <a
@@ -167,8 +180,13 @@ export function ChatPage() {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground py-8">
-              <Bot className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>Start a conversation with {currentAgent.name}</p>
+              <div className="relative inline-block">
+                <div className="absolute -inset-2 rounded-full blur-lg bg-primary/20" />
+                <div className="relative h-12 w-12 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-6 w-6 text-primary" />
+                </div>
+              </div>
+              <p className="mt-2">Start a conversation with {currentAgent.name}</p>
             </div>
           )}
 
@@ -220,7 +238,11 @@ export function ChatPage() {
                 </div>
               </div>
               <div className="bg-muted rounded-lg p-3">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="loading-dots inline-flex gap-1">
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                  <span className="h-2 w-2 rounded-full bg-current"></span>
+                </span>
               </div>
             </div>
           )}

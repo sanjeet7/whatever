@@ -31,6 +31,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         is_superuser: false,
         created_at: new Date().toISOString()
       })
+      // Restore last chat session id if present
+      const sid = localStorage.getItem('session_id')
+      if (!sid) {
+        // No-op here; chat page will request one and persist
+      }
     }
     setIsLoading(false)
   }, [token])

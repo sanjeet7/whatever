@@ -6,6 +6,7 @@ import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import asyncio
+import uuid
 
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +32,7 @@ from .auth import get_current_active_user, Token, UserCreate, UserResponse, crea
 from .registry import RegistryService
 from .database import Database
 from .middleware import RequestLoggingMiddleware, RateLimitingMiddleware, SecurityHeadersMiddleware
+from .orchestration import OrchestrationEngine
 import logging
 from pydantic import ValidationError
 
@@ -47,6 +49,7 @@ class AgentPlatformAPI:
         self.registry = RegistryService(self.db)
         self.agent_manager = AgentManager()
         self.handoff_system = HandoffAgentSystem()
+        self.orchestrator = OrchestrationEngine(registry=self.registry)
         self.api = self._create_api()
         self._websocket_connections: Dict[str, WebSocket] = {}
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -198,7 +201,15 @@ class AgentPlatformAPI:
         ) -> List[AgentResponse]:
             """List all available agents."""
             agents = agent_manager.list_agents()
-            return [AgentResponse(**agent) for agent in agents]
+            # Always expose orchestrator as primary entrypoint
+            orchestrator_entry = {
+                "id": "orchestrator",
+                "name": "Orchestrator",
+                "model": "router",
+                "tools": [],
+            }
+            combined = [orchestrator_entry] + agents
+            return [AgentResponse(**agent) for agent in combined]
         
         @app.get("/agents/{agent_id}", response_model=AgentResponse)
         async def get_agent(
@@ -271,13 +282,9 @@ class AgentPlatformAPI:
         async def create_session(
             current_user: Dict[str, Any] = Depends(get_current_active_user)
         ) -> Dict[str, str]:
-            """Create a new conversation session."""
-            session_id = f"session_{current_user['username']}_{datetime.utcnow().timestamp()}"
-            self._active_sessions[session_id] = {
-                "user": current_user["username"],
-                "created_at": datetime.utcnow(),
-                "messages": []
-            }
+            """Create a new conversation session (persisted)."""
+            session_id = f"sess_{uuid.uuid4().hex}"
+            self.registry.create_chat_session(session_id=session_id, user=current_user["username"])
             return {"session_id": session_id}
         
         @app.get("/sessions/{session_id}")
@@ -285,15 +292,25 @@ class AgentPlatformAPI:
             session_id: str,
             current_user: Dict[str, Any] = Depends(get_current_active_user)
         ) -> Dict[str, Any]:
-            """Get session details."""
-            session = self._active_sessions.get(session_id)
+            """Get session details with persisted messages."""
+            session = self.registry.get_chat_session(session_id)
             if not session:
                 raise HTTPException(status_code=404, detail="Session not found")
-            
-            if session["user"] != current_user["username"]:
-                raise HTTPException(status_code=403, detail="Access denied")
-            
-            return session
+            messages = self.registry.list_chat_messages(session_id)
+            return {
+                "session_id": session.session_id,
+                "user": session.user,
+                "created_at": session.created_at.isoformat(),
+                "messages": [
+                    {
+                        "role": m.role,
+                        "content": m.content,
+                        "timestamp": m.created_at.isoformat(),
+                        "agent_id": m.agent_id,
+                    }
+                    for m in messages
+                ],
+            }
         
         # WebSocket for real-time agent interactions
         @app.websocket("/ws/{session_id}")
@@ -319,35 +336,41 @@ class AgentPlatformAPI:
                             
                             logger.info(f"WebSocket chat from session {session_id} to agent {agent_id}")
                             
-                            # Store message in session
-                            if session_id in self._active_sessions:
-                                self._active_sessions[session_id]["messages"].append({
-                                    "role": "user",
-                                    "content": message,
-                                    "timestamp": datetime.utcnow().isoformat()
-                                })
+                            # Persist user message
+                            self.registry.append_chat_message(
+                                session_id=session_id,
+                                role="user",
+                                content=message,
+                                agent_id=None,
+                            )
                             
-                            # Run the appropriate system
+                            # Orchestrate
                             try:
-                                if agent_id == "triage_agent":
-                                    # Use async variant to avoid event loop issues
-                                    output = await self.handoff_system.handle_request_async(message)
+                                if agent_id == "orchestrator":
+                                    # Route via orchestrator (sync wrapper in thread)
+                                    loop = asyncio.get_running_loop()
+                                    result = await loop.run_in_executor(
+                                        None,
+                                        lambda: self.orchestrator.route_request(user_input=message),
+                                    )
+                                    output = result.response
+                                    responding_agent_id = "orchestrator"
                                 else:
                                     output = await self.agent_manager.run_agent_async(agent_id, message)
+                                    responding_agent_id = agent_id
                                 
-                                # Store response in session
-                                if session_id in self._active_sessions:
-                                    self._active_sessions[session_id]["messages"].append({
-                                        "role": "assistant",
-                                        "content": output,
-                                        "timestamp": datetime.utcnow().isoformat(),
-                                        "agent_id": agent_id
-                                    })
+                                # Persist assistant response
+                                self.registry.append_chat_message(
+                                    session_id=session_id,
+                                    role="assistant",
+                                    content=output,
+                                    agent_id=responding_agent_id,
+                                )
                                 
                                 # Send response back
                                 await websocket.send_json({
                                     "type": "response",
-                                    "agent_id": agent_id,
+                                    "agent_id": responding_agent_id,
                                     "message": output,
                                     "timestamp": datetime.utcnow().isoformat()
                                 })

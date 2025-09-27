@@ -2,6 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Futuristic gradient background and animated loader */
+:root {
+  --grid-color: rgba(255, 255, 255, 0.06);
+}
+
+body {
+  background: radial-gradient(1200px 800px at 80% -10%, rgba(99, 102, 241, 0.2), transparent),
+              radial-gradient(1000px 600px at -10% 20%, rgba(34, 197, 94, 0.15), transparent),
+              radial-gradient(800px 800px at 50% 120%, rgba(236, 72, 153, 0.12), transparent);
+}
+
+.neo-panel {
+  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.glow {
+  box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
+  animation: pulse-glow 2.5s infinite;
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.6); }
+  70% { box-shadow: 0 0 0 16px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+.grid-overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 30%, rgba(0,0,0,0.9) 70%);
+  z-index: -1;
+}
+
+.loading-dots span {
+  animation: dots 1.4s infinite both;
+}
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes dots {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

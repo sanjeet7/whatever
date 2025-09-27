@@ -61,10 +61,10 @@ export function AgentsPage() {
   }
 
   const toggleTool = (toolName: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       tools: prev.tools.includes(toolName)
-        ? prev.tools.filter(t => t !== toolName)
+        ? prev.tools.filter((t) => t !== toolName)
         : [...prev.tools, toolName]
     }))
   }
@@ -85,7 +85,7 @@ export function AgentsPage() {
       </div>
 
       {showCreateForm && (
-        <Card>
+        <Card className="neo-panel">
           <CardHeader>
             <CardTitle>Create New Agent</CardTitle>
             <CardDescription>
@@ -165,8 +165,8 @@ export function AgentsPage() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {agents.map((agent) => (
-            <Card key={agent.id} className="hover:shadow-lg transition-shadow">
+          {agents.filter((a) => a.id !== 'orchestrator').map((agent) => (
+            <Card key={agent.id} className="hover:shadow-lg transition-shadow neo-panel">
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">

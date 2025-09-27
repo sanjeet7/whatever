@@ -53,7 +53,7 @@ export function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.title}>
+          <Card key={stat.title} className="neo-panel">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 {stat.title}
@@ -64,7 +64,15 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {isLoading ? '...' : stat.value}
+                {isLoading ? (
+                  <span className="loading-dots inline-flex gap-1">
+                    <span className="h-2 w-2 rounded-full bg-current"></span>
+                    <span className="h-2 w-2 rounded-full bg-current"></span>
+                    <span className="h-2 w-2 rounded-full bg-current"></span>
+                  </span>
+                ) : (
+                  stat.value
+                )}
               </div>
             </CardContent>
           </Card>
@@ -72,7 +80,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card>
+        <Card className="neo-panel">
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
@@ -90,7 +98,7 @@ export function DashboardPage() {
               </div>
             </a>
             <a
-              href="/chat"
+              href="/chat/orchestrator"
               className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
             >
               <MessageSquare className="h-5 w-5 text-primary" />
@@ -104,7 +112,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="neo-panel">
           <CardHeader>
             <CardTitle>Platform Features</CardTitle>
           </CardHeader>
