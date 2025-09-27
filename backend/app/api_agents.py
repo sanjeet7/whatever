@@ -14,12 +14,28 @@ from pydantic import BaseModel, Field
 
 from .agents_sdk import (
     AgentManager, HandoffAgentSystem,
-    AgentCreateRequest, AgentRunRequest, MetaAgentDesignRequest,
     AgentResponse, RunResponse
+)
+from .validators import (
+    ValidatedAgentCreateRequest, ValidatedAgentRunRequest, 
+    ValidatedMetaAgentDesignRequest, ValidatedChatMessage
+)
+from .exceptions import (
+    AgentPlatformError, AgentNotFoundError, SessionNotFoundError,
+    InvalidAgentConfigError, OpenAIAPIError,
+    agent_platform_exception_handler, validation_exception_handler,
+    generic_exception_handler
 )
 from .auth import get_current_active_user, Token, UserCreate, UserResponse, create_access_token
 from .registry import RegistryService
 from .database import Database
+from .middleware import RequestLoggingMiddleware, RateLimitingMiddleware, SecurityHeadersMiddleware
+import logging
+from pydantic import ValidationError
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class AgentPlatformAPI:
@@ -50,6 +66,16 @@ class AgentPlatformAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        
+        # Add middleware
+        app.add_middleware(SecurityHeadersMiddleware)
+        app.add_middleware(RateLimitingMiddleware, calls=100, period=60)
+        app.add_middleware(RequestLoggingMiddleware)
+        
+        # Add exception handlers
+        app.add_exception_handler(AgentPlatformError, agent_platform_exception_handler)
+        app.add_exception_handler(ValidationError, validation_exception_handler)
+        app.add_exception_handler(Exception, generic_exception_handler)
         
         # Dependency providers
         def get_agent_manager() -> AgentManager:
@@ -94,12 +120,13 @@ class AgentPlatformAPI:
         # Meta Agent endpoints
         @app.post("/meta-agent/design")
         async def design_agent(
-            request: MetaAgentDesignRequest,
+            request: ValidatedMetaAgentDesignRequest,
             current_user: Dict[str, Any] = Depends(get_current_active_user),
             agent_manager: AgentManager = Depends(get_agent_manager)
         ) -> Dict[str, Any]:
             """Use the meta agent to design a new agent based on requirements."""
             try:
+                logger.info(f"User {current_user['username']} designing agent with requirements")
                 result = agent_manager.design_agent_with_meta(request.requirements)
                 
                 # Save the design to registry
@@ -117,17 +144,20 @@ class AgentPlatformAPI:
                     "suggested_config": result["suggested_config"]
                 }
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.error(f"Error designing agent: {str(e)}")
+                raise OpenAIAPIError(str(e))
         
         # Agent management endpoints
         @app.post("/agents", response_model=Dict[str, Any])
         async def create_agent(
-            request: AgentCreateRequest,
+            request: ValidatedAgentCreateRequest,
             current_user: Dict[str, Any] = Depends(get_current_active_user),
             agent_manager: AgentManager = Depends(get_agent_manager)
         ) -> Dict[str, Any]:
             """Create a new AI agent."""
             try:
+                logger.info(f"User {current_user['username']} creating agent: {request.name}")
+                
                 config = {
                     "name": request.name,
                     "instructions": request.instructions,
@@ -147,6 +177,8 @@ class AgentPlatformAPI:
                     created_by=current_user["username"]
                 )
                 
+                logger.info(f"Agent created successfully: {agent_id}")
+                
                 return {
                     "agent_id": agent_id,
                     "template_id": template.id,
@@ -154,7 +186,8 @@ class AgentPlatformAPI:
                     "status": "created"
                 }
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.error(f"Error creating agent: {str(e)}")
+                raise InvalidAgentConfigError(str(e))
         
         @app.get("/agents", response_model=List[AgentResponse])
         async def list_agents(
@@ -186,12 +219,14 @@ class AgentPlatformAPI:
         # Agent execution endpoints
         @app.post("/agents/run", response_model=RunResponse)
         async def run_agent(
-            request: AgentRunRequest,
+            request: ValidatedAgentRunRequest,
             current_user: Dict[str, Any] = Depends(get_current_active_user),
             agent_manager: AgentManager = Depends(get_agent_manager)
         ) -> RunResponse:
             """Run an agent with user input."""
             try:
+                logger.info(f"User {current_user['username']} running agent {request.agent_id}")
+                
                 output = await agent_manager.run_agent_async(
                     request.agent_id,
                     request.user_input
@@ -202,9 +237,11 @@ class AgentPlatformAPI:
                     output=output
                 )
             except ValueError as e:
-                raise HTTPException(status_code=404, detail=str(e))
+                logger.error(f"Agent not found: {request.agent_id}")
+                raise AgentNotFoundError(request.agent_id)
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.error(f"Error running agent: {str(e)}")
+                raise OpenAIAPIError(str(e))
         
         # Handoff system endpoint
         @app.post("/handoff/triage")
@@ -269,50 +306,71 @@ class AgentPlatformAPI:
                 while True:
                     data = await websocket.receive_json()
                     
-                    if data["type"] == "chat":
-                        agent_id = data.get("agent_id", "triage_agent")
-                        message = data.get("message", "")
+                    try:
+                        # Validate the message
+                        validated_msg = ValidatedChatMessage(**data)
                         
-                        # Store message in session
-                        if session_id in self._active_sessions:
-                            self._active_sessions[session_id]["messages"].append({
-                                "role": "user",
-                                "content": message,
-                                "timestamp": datetime.utcnow().isoformat()
-                            })
-                        
-                        # Run the appropriate system
-                        try:
-                            if agent_id == "triage_agent":
-                                output = self.handoff_system.handle_request(message)
-                            else:
-                                output = await self.agent_manager.run_agent_async(agent_id, message)
+                        if validated_msg.type == "chat":
+                            agent_id = validated_msg.agent_id
+                            message = validated_msg.message
                             
-                            # Store response in session
+                            logger.info(f"WebSocket chat from session {session_id} to agent {agent_id}")
+                            
+                            # Store message in session
                             if session_id in self._active_sessions:
                                 self._active_sessions[session_id]["messages"].append({
-                                    "role": "assistant",
-                                    "content": output,
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                    "agent_id": agent_id
+                                    "role": "user",
+                                    "content": message,
+                                    "timestamp": datetime.utcnow().isoformat()
                                 })
                             
-                            # Send response back
-                            await websocket.send_json({
-                                "type": "response",
-                                "agent_id": agent_id,
-                                "message": output,
-                                "timestamp": datetime.utcnow().isoformat()
-                            })
+                            # Run the appropriate system
+                            try:
+                                if agent_id == "triage_agent":
+                                    output = self.handoff_system.handle_request(message)
+                                else:
+                                    output = await self.agent_manager.run_agent_async(agent_id, message)
+                                
+                                # Store response in session
+                                if session_id in self._active_sessions:
+                                    self._active_sessions[session_id]["messages"].append({
+                                        "role": "assistant",
+                                        "content": output,
+                                        "timestamp": datetime.utcnow().isoformat(),
+                                        "agent_id": agent_id
+                                    })
+                                
+                                # Send response back
+                                await websocket.send_json({
+                                    "type": "response",
+                                    "agent_id": agent_id,
+                                    "message": output,
+                                    "timestamp": datetime.utcnow().isoformat()
+                                })
+                                
+                            except ValueError:
+                                logger.error(f"Agent not found: {agent_id}")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": f"Agent '{agent_id}' not found"
+                                })
+                            except Exception as e:
+                                logger.error(f"Error in WebSocket chat: {str(e)}")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": "An error occurred processing your message"
+                                })
+                        
+                        elif validated_msg.type == "ping":
+                            await websocket.send_json({"type": "pong"})
                             
-                        except Exception as e:
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": str(e)
-                            })
-                    
-                    elif data["type"] == "ping":
-                        await websocket.send_json({"type": "pong"})
+                    except ValidationError as e:
+                        logger.warning(f"Invalid WebSocket message: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Invalid message format",
+                            "details": e.errors()
+                        })
                     
             except WebSocketDisconnect:
                 del self._websocket_connections[session_id]
