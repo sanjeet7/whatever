@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Sequence
 
 from .database import Database
-from .models import AgentInstance, AgentTemplate, Function, ImprovementProposal, Tool
+from .models import AgentInstance, AgentTemplate, Function, ImprovementProposal, Tool, ChatSession, ChatMessage
 
 JsonLike = dict[str, Any] | list[Any]
 
@@ -246,6 +246,63 @@ class RegistryService:
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_proposal(row) for row in rows]
 
+    # Chat sessions ----------------------------------------------------------------------
+    def create_chat_session(self, *, session_id: str, user: str) -> ChatSession:
+        with self.db.session() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO chat_sessions (session_id, user)
+                VALUES (?, ?)
+                """,
+                (session_id, user),
+            )
+            row = conn.execute(
+                "SELECT * FROM chat_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return self._row_to_chat_session(row)
+
+    def get_chat_session(self, session_id: str) -> ChatSession | None:
+        with self.db.session() as conn:
+            row = conn.execute(
+                "SELECT * FROM chat_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return self._row_to_chat_session(row) if row else None
+
+    def append_chat_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        agent_id: str | None = None,
+    ) -> ChatMessage:
+        with self.db.session() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO chat_messages (session_id, role, content, agent_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (session_id, role, content, agent_id),
+            )
+            message_id = cursor.lastrowid
+            row = conn.execute(
+                "SELECT * FROM chat_messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+        return self._row_to_chat_message(row)
+
+    def list_chat_messages(self, session_id: str, limit: int | None = 200) -> list[ChatMessage]:
+        query = "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY id DESC"
+        params: list[Any] = [session_id]
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+        with self.db.session() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._row_to_chat_message(row) for row in reversed(rows)]
+
     # Conversion helpers ------------------------------------------------------------------
     def _row_to_template(self, row: Any) -> AgentTemplate:
         data = dict(row)
@@ -318,6 +375,26 @@ class RegistryService:
             agent_instance_id=data["agent_instance_id"],
             proposal_type=data["proposal_type"],
             summary=data["summary"],
+            created_at=_to_datetime(data["created_at"]),
+        )
+
+    def _row_to_chat_session(self, row: Any) -> ChatSession:
+        data = dict(row)
+        return ChatSession(
+            id=data["id"],
+            session_id=data["session_id"],
+            user=data["user"],
+            created_at=_to_datetime(data["created_at"]),
+        )
+
+    def _row_to_chat_message(self, row: Any) -> ChatMessage:
+        data = dict(row)
+        return ChatMessage(
+            id=data["id"],
+            session_id=data["session_id"],
+            role=data["role"],
+            content=data["content"],
+            agent_id=data.get("agent_id"),
             created_at=_to_datetime(data["created_at"]),
         )
 

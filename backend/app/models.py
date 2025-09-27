@@ -74,3 +74,21 @@ class ImprovementProposal:
     proposal_type: str
     summary: str
     created_at: datetime
+
+
+@dataclass(slots=True)
+class ChatSession:
+    id: int
+    session_id: str
+    user: str
+    created_at: datetime
+
+
+@dataclass(slots=True)
+class ChatMessage:
+    id: int
+    session_id: str
+    role: str
+    content: str
+    agent_id: str | None
+    created_at: datetime

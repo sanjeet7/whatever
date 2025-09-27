@@ -104,6 +104,24 @@ class Database:
                     summary TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
+
+                -- Persistent chat sessions
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    user TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    agent_id TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES chat_sessions(session_id) ON DELETE CASCADE
+                );
                 """
             )
 
@@ -113,6 +131,8 @@ class Database:
         with self.session() as conn:
             conn.executescript(
                 """
+                DELETE FROM chat_messages;
+                DELETE FROM chat_sessions;
                 DELETE FROM improvement_proposals;
                 DELETE FROM agent_instances;
                 DELETE FROM function_registry;
