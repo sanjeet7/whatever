@@ -41,10 +41,10 @@ def main() -> None:
     data_dir.mkdir(exist_ok=True)
     
     uvicorn.run(
-        app,
+        "app.api_agents:app",
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", 8000)),
-        reload=True
+        reload=False
     )
 
 

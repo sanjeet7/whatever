@@ -10,6 +10,7 @@ import asyncio
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
 from .agents_sdk import (
@@ -111,10 +112,10 @@ class AgentPlatformAPI:
             }
         
         @app.post("/auth/token", response_model=Token)
-        async def login(username: str, password: str) -> Dict[str, str]:
+        async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> Dict[str, str]:
             """Login and get access token."""
-            # Simplified for demo
-            access_token = create_access_token(data={"sub": username})
+            # Simplified for demo - in production, verify password against database
+            access_token = create_access_token(data={"sub": form_data.username})
             return {"access_token": access_token, "token_type": "bearer"}
         
         # Meta Agent endpoints
@@ -127,7 +128,8 @@ class AgentPlatformAPI:
             """Use the meta agent to design a new agent based on requirements."""
             try:
                 logger.info(f"User {current_user['username']} designing agent with requirements")
-                result = agent_manager.design_agent_with_meta(request.requirements)
+                # Use async meta design to avoid thread event loop issues
+                result = await agent_manager.design_agent_with_meta_async(request.requirements)
                 
                 # Save the design to registry
                 self.registry.create_agent_template(
@@ -213,7 +215,7 @@ class AgentPlatformAPI:
                 id=agent_id,
                 name=agent.name,
                 model=agent.model,
-                tools=[tool.__name__ for tool in agent.tools] if agent.tools else []
+                tools=[getattr(tool, 'name', tool.__class__.__name__) for tool in agent.tools] if agent.tools else []
             )
         
         # Agent execution endpoints
@@ -253,7 +255,8 @@ class AgentPlatformAPI:
             """Route a request through the handoff triage system."""
             try:
                 user_input = request.get("input", "")
-                output = handoff_system.handle_request(user_input)
+                # Prefer async path to avoid blocking
+                output = await handoff_system.handle_request_async(user_input)
                 
                 return {
                     "status": "success",
@@ -327,7 +330,8 @@ class AgentPlatformAPI:
                             # Run the appropriate system
                             try:
                                 if agent_id == "triage_agent":
-                                    output = self.handoff_system.handle_request(message)
+                                    # Use async variant to avoid event loop issues
+                                    output = await self.handoff_system.handle_request_async(message)
                                 else:
                                     output = await self.agent_manager.run_agent_async(agent_id, message)
                                 

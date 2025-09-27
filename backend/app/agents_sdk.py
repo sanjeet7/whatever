@@ -7,6 +7,8 @@ import json
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
+import random
+import string
 import asyncio
 
 from agents import Agent, function_tool, Runner
@@ -15,6 +17,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+# Helpers to run sync SDK calls safely from async contexts ---------------------
+def _run_sync_with_loop(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a blocking function that expects an asyncio event loop in a fresh loop.
+
+    Some SDK internals call asyncio.get_running_loop() or similar, which fails in a
+    bare thread pool worker. This helper creates and sets a loop for the duration
+    of the call to keep those internals happy.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return func(*args, **kwargs)
+    finally:
+        try:
+            loop.close()
+        finally:
+            asyncio.set_event_loop(None)
 
 # Tool definitions using the official SDK
 @function_tool
@@ -48,7 +68,7 @@ def create_agent_config(
     name: str,
     description: str,
     capabilities: List[str],
-    model: str = "gpt-4-turbo-preview"
+    model: str = "gpt-5"
 ) -> Dict[str, Any]:
     """Create a configuration for a new agent based on requirements."""
     
@@ -115,7 +135,7 @@ When a user describes what they want an agent to do:
 
 Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
             tools=[create_agent_config],
-            model="gpt-4-turbo-preview"
+            model="gpt-5"
         )
         self.agents["meta_agent"] = self.meta_agent
         
@@ -126,7 +146,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
             You can help with product questions, troubleshooting, and general inquiries.
             Always be polite, empathetic, and solution-oriented.""",
             tools=[web_search],
-            model="gpt-4-turbo-preview"
+            model="gpt-5"
         )
         self.agents["support_agent"] = self.support_agent
         
@@ -137,7 +157,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
             You can help with code reviews, debugging, and suggesting improvements.
             Support multiple programming languages and follow best practices.""",
             tools=[analyze_code, web_search],
-            model="gpt-4-turbo-preview"
+            model="gpt-5"
         )
         self.agents["code_agent"] = self.code_agent
         
@@ -148,7 +168,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
             You can help create articles, social media posts, and other content.
             Focus on engaging, original, and well-structured content.""",
             tools=[generate_content, web_search],
-            model="gpt-4-turbo-preview"
+            model="gpt-5"
         )
         self.agents["content_agent"] = self.content_agent
     
@@ -156,7 +176,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
         """Create a new agent from configuration."""
         name = config["name"]
         instructions = config["instructions"]
-        model = config.get("model", "gpt-4-turbo-preview")
+        model = config.get("model", "gpt-5")
         tool_names = config.get("tools", [])
         
         # Map tool names to actual tool functions
@@ -190,7 +210,7 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
                 "id": agent_id,
                 "name": agent.name,
                 "model": agent.model,
-                "tools": [tool.__name__ for tool in agent.tools] if agent.tools else []
+                "tools": [getattr(tool, 'name', tool.__class__.__name__) for tool in agent.tools] if agent.tools else []
             }
             for agent_id, agent in self.agents.items()
         ]
@@ -209,20 +229,19 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
         return result.final_output
     
     async def run_agent_async(self, agent_id: str, user_input: str) -> str:
-        """Run an agent asynchronously."""
+        """Run an agent without blocking the event loop."""
         agent = self.get_agent(agent_id)
         if not agent:
             raise ValueError(f"Agent {agent_id} not found")
-        
-        result = await Runner.run_async(
-            starting_agent=agent,
-            input=user_input
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: _run_sync_with_loop(Runner.run_sync, starting_agent=agent, input=user_input),
         )
-        
         return result.final_output
     
     def design_agent_with_meta(self, requirements: str) -> Dict[str, Any]:
-        """Use the meta agent to design a new agent."""
+        """Use the meta agent to design a new agent (sync helper)."""
         result = Runner.run_sync(
             starting_agent=self.meta_agent,
             input=f"Please design an AI agent with these requirements: {requirements}"
@@ -230,10 +249,35 @@ Be creative but practical. Ensure agents are helpful, harmless, and honest.""",
         
         # Parse the result to extract the agent configuration
         # In a real implementation, you'd parse the structured output
+        unique_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        unique_name = f"Custom Agent {int(datetime.utcnow().timestamp()*1_000_000)}_{unique_suffix}"
         return {
             "design": result.final_output,
             "suggested_config": {
-                "name": "Custom Agent",
+                "name": unique_name,
+                "instructions": "Agent designed based on your requirements",
+                "model": "gpt-5",
+                "tools": []
+            }
+        }
+
+    async def design_agent_with_meta_async(self, requirements: str) -> Dict[str, Any]:
+        """Async variant to avoid blocking event loop."""
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: _run_sync_with_loop(
+                Runner.run_sync,
+                starting_agent=self.meta_agent,
+                input=f"Please design an AI agent with these requirements: {requirements}",
+            ),
+        )
+        unique_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        unique_name = f"Custom Agent {int(datetime.utcnow().timestamp()*1_000_000)}_{unique_suffix}"
+        return {
+            "design": result.final_output,
+            "suggested_config": {
+                "name": unique_name,
                 "instructions": "Agent designed based on your requirements",
                 "model": "gpt-4-turbo-preview",
                 "tools": []
@@ -246,7 +290,7 @@ class AgentCreateRequest(BaseModel):
     """Request to create a new agent."""
     name: str
     instructions: str
-    model: str = "gpt-4-turbo-preview"
+    model: str = "gpt-5"
     tools: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -296,7 +340,7 @@ class HandoffAgentSystem:
             return f"Refund request submitted for item {item_id}. Reason: {reason}. Reference number: REF-{datetime.now().timestamp()}"
         
         self.support_agent = Agent(
-            name="Support & Returns",
+            name="Support and Returns",
             instructions="You handle customer support issues, especially returns and refunds. Be empathetic and solution-oriented.",
             tools=[submit_refund_request]
         )
@@ -306,7 +350,7 @@ class HandoffAgentSystem:
             name="Triage Agent",
             instructions="""You are the first point of contact. Understand what the user needs and route them to the appropriate specialist:
             - For product searches and shopping: handoff to Shopping Assistant
-            - For returns, refunds, and support issues: handoff to Support & Returns
+            - For returns, refunds, and support issues: handoff to Support and Returns
             
             Always explain who you're connecting them with and why.""",
             handoffs=[self.shopping_agent, self.support_agent]
@@ -317,5 +361,14 @@ class HandoffAgentSystem:
         result = Runner.run_sync(
             starting_agent=self.triage_agent,
             input=user_input
+        )
+        return result.final_output
+
+    async def handle_request_async(self, user_input: str) -> str:
+        """Async variant to avoid blocking event loop."""
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: _run_sync_with_loop(Runner.run_sync, starting_agent=self.triage_agent, input=user_input),
         )
         return result.final_output

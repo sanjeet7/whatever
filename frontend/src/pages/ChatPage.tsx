@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Send, Bot, User, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { agentsAPI, sessionsAPI, createWebSocket } from '@/lib/api'
 import type { Agent, Message } from '@/types'
@@ -16,7 +15,6 @@ export function ChatPage() {
   const [input, setInput] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -35,7 +33,6 @@ export function ChatPage() {
   const createSessionMutation = useMutation({
     mutationFn: sessionsAPI.create,
     onSuccess: (data) => {
-      setSessionId(data.session_id)
       connectWebSocket(data.session_id)
     },
   })

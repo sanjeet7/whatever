@@ -33,12 +33,23 @@ class RegistryService:
         created_by: str = "system",
     ) -> AgentTemplate:
         with self.db.session() as conn:
-            cursor = conn.execute(
+            conn.execute(
                 """
                 INSERT INTO agent_templates (
                     name, category, description, instructions_template, model_config,
                     required_tools, sample_interactions, performance_metrics, created_by
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    category=excluded.category,
+                    description=excluded.description,
+                    instructions_template=excluded.instructions_template,
+                    model_config=excluded.model_config,
+                    required_tools=excluded.required_tools,
+                    sample_interactions=excluded.sample_interactions,
+                    performance_metrics=excluded.performance_metrics,
+                    created_by=excluded.created_by,
+                    created_at=CURRENT_TIMESTAMP,
+                    version=agent_templates.version + 1
                 """,
                 (
                     name,
@@ -52,10 +63,9 @@ class RegistryService:
                     created_by,
                 ),
             )
-            template_id = cursor.lastrowid
             row = conn.execute(
-                "SELECT * FROM agent_templates WHERE id = ?",
-                (template_id,),
+                "SELECT * FROM agent_templates WHERE name = ?",
+                (name,),
             ).fetchone()
         return self._row_to_template(row)
 
