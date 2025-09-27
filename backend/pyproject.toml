@@ -1,0 +1,21 @@
+[project]
+name = "dynamic-agent-platform"
+version = "0.3.0"
+description = "Backend services for the dynamic AI agent platform"
+authors = [{name = "OpenAI Agent"}]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110,<1",
+    "pydantic>=2.6",
+    "uvicorn[standard]>=0.29,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

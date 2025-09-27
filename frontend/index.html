@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dynamic Agent Platform</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Dynamic Agent Platform</h1>
+      <p>Create templates, register tools, deploy agents, and trigger self-improvement from a single dashboard.</p>
+    </header>
+
+    <main>
+      <section class="card" id="templates">
+        <h2>Agent Templates</h2>
+        <form id="template-form">
+          <div class="field">
+            <label for="template-name">Name</label>
+            <input id="template-name" required />
+          </div>
+          <div class="field">
+            <label for="template-description">Description</label>
+            <textarea id="template-description" required></textarea>
+          </div>
+          <button type="submit">Create Template</button>
+        </form>
+        <div class="list" id="template-list"></div>
+      </section>
+
+      <section class="card" id="tools">
+        <h2>Tool Registry</h2>
+        <form id="tool-form">
+          <div class="field">
+            <label for="tool-name">Name</label>
+            <input id="tool-name" required />
+          </div>
+          <div class="field">
+            <label for="tool-description">Description</label>
+            <textarea id="tool-description" required></textarea>
+          </div>
+          <button type="submit">Register Tool</button>
+        </form>
+        <div class="list" id="tool-list"></div>
+      </section>
+
+      <section class="card" id="deployments">
+        <h2>Deploy Agent</h2>
+        <form id="deployment-form">
+          <div class="field">
+            <label for="deployment-name">Instance Name</label>
+            <input id="deployment-name" required />
+          </div>
+          <div class="field">
+            <label for="deployment-owner">Owner</label>
+            <input id="deployment-owner" placeholder="team-or-user" />
+          </div>
+          <div class="field">
+            <label for="deployment-template">Template</label>
+            <select id="deployment-template" required></select>
+          </div>
+          <button type="submit">Deploy</button>
+        </form>
+        <div class="list" id="deployment-list"></div>
+      </section>
+
+      <section class="card" id="router">
+        <h2>Route &amp; Self-Improve</h2>
+        <form id="route-form">
+          <div class="field">
+            <label for="route-input">User Input</label>
+            <textarea id="route-input" placeholder="Ask an agent for help" required></textarea>
+          </div>
+          <div class="field">
+            <label for="route-owner">Owner</label>
+            <input id="route-owner" placeholder="team-or-user" />
+          </div>
+          <button type="submit">Route Request</button>
+        </form>
+        <pre class="output" id="route-output">No request submitted yet.</pre>
+        <button id="improve-button" class="secondary">Trigger Self-Improvement</button>
+        <pre class="output" id="improve-output">No improvements recorded.</pre>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Backend must run locally on <code>http://localhost:8000</code>. Update the API base URL in
+        <code>app.js</code> if your server is hosted elsewhere.
+      </p>
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
